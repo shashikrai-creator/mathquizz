@@ -1,0 +1,1996 @@
+/**
+ * CA Common Core Grade 9 Math Practice Test App
+ * Google Apps Script — paste into Extensions > Apps Script
+ *
+ * Menu: Math Practice Test →
+ *   Setup App | Generate New Test | Submit & Grade | Clear Test
+ */
+
+// ─── Menu ────────────────────────────────────────────────────────────────────
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Math Practice Test')
+    .addItem('Setup App', 'setupApp')
+    .addItem('Refresh Sub-Topics', 'refreshSubTopics')
+    .addSeparator()
+    .addItem('Generate New Test', 'generateNewTest')
+    .addItem('Submit & Grade', 'submitAndGrade')
+    .addItem('Clear Test', 'clearTest')
+    .addToUi();
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+var TOPICS = [
+  'Linear Equations',
+  'Linear Inequalities',
+  'Systems of Equations',
+  'Functions & Graphing',
+  'Arithmetic & Geometric Sequences',
+  'Exponents & Radicals',
+  'Polynomials & Factoring',
+  'Quadratic Equations',
+  'Statistics & Data Analysis',
+  'Geometry'
+];
+
+var SUBTOPICS = {
+  'Linear Equations': ['Mix (All)', 'One-Step Equations', 'Two-Step Equations', 'Variables on Both Sides', 'Distributive Property', 'Word Problems', 'Absolute Value Equations'],
+  'Linear Inequalities': ['Mix (All)', 'One-Step Inequalities', 'Two-Step Inequalities', 'Compound Inequalities', 'Word Problems', 'Absolute Value Inequalities'],
+  'Systems of Equations': ['Mix (All)', 'Substitution', 'Elimination', 'Word Problems', 'Number of Solutions', 'Find Both Variables'],
+  'Functions & Graphing': ['Mix (All)', 'Evaluate Functions', 'Slope', 'Intercepts', 'Rate of Change', 'Function Composition', 'Linear vs Nonlinear'],
+  'Arithmetic & Geometric Sequences': ['Mix (All)', 'Arithmetic Sequences', 'Geometric Sequences', 'Sequence Sums', 'Find Common Difference', 'Find Common Ratio', 'Missing Terms'],
+  'Exponents & Radicals': ['Mix (All)', 'Exponent Rules', 'Evaluate Powers', 'Square Roots', 'Negative Exponents', 'Scientific Notation', 'Cube Roots'],
+  'Polynomials & Factoring': ['Mix (All)', 'Evaluate Polynomials', 'Multiply Polynomials', 'Factor Polynomials', 'Add & Subtract Polynomials', 'GCF Factoring', 'Degree & Leading Coefficient'],
+  'Quadratic Equations': ['Mix (All)', 'Perfect Squares', 'Factoring Quadratics', 'Standard Form', 'Vertex Form', 'Complete the Square', 'Quadratic Word Problems'],
+  'Statistics & Data Analysis': ['Mix (All)', 'Mean', 'Median', 'Range', 'Mode', 'Weighted Average', 'Five-Number Summary'],
+  'Geometry': ['Mix (All)', 'Area', 'Volume', 'Pythagorean Theorem', 'Perimeter', 'Surface Area', 'Circumference & Circles']
+};
+
+var DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
+
+// ─── Setup ───────────────────────────────────────────────────────────────────
+
+function setupApp() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // ── Dashboard ──
+  var dash = getOrCreateSheet(ss, 'Dashboard');
+  dash.clear();
+  dash.getRange(1, 1, dash.getMaxRows(), dash.getMaxColumns()).clearDataValidations();
+  dash.setColumnWidth(1, 200);
+  dash.setColumnWidth(2, 320);
+
+  dash.getRange('A1').setValue('Math Practice Test').setFontSize(18).setFontWeight('bold');
+  dash.getRange('A2').setValue('CA Common Core — Grade 9 / Algebra 1').setFontSize(11).setFontColor('#555555');
+
+  dash.getRange('A4').setValue('Topic:').setFontWeight('bold');
+  var topicCell = dash.getRange('B4');
+  var topicRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(TOPICS, true)
+    .setAllowInvalid(false)
+    .build();
+  topicCell.setDataValidation(topicRule);
+  topicCell.setValue(TOPICS[0]);
+
+  dash.getRange('A5').setValue('Sub-Topic:').setFontWeight('bold');
+  var subCell = dash.getRange('B5');
+  var firstSubs = SUBTOPICS[TOPICS[0]];
+  var subRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(firstSubs, true)
+    .setAllowInvalid(false)
+    .build();
+  subCell.setDataValidation(subRule);
+  subCell.setValue(firstSubs[0]);
+
+  dash.getRange('A6').setValue('Difficulty:').setFontWeight('bold');
+  var diffCell = dash.getRange('B6');
+  var diffRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(DIFFICULTIES, true)
+    .setAllowInvalid(false)
+    .build();
+  diffCell.setDataValidation(diffRule);
+  diffCell.setValue(DIFFICULTIES[0]);
+
+  dash.getRange('A8').setValue('Instructions').setFontSize(13).setFontWeight('bold');
+  dash.getRange('A9').setValue(
+    '1. Select a Topic, Sub-Topic, and Difficulty above.\n' +
+    '2. Menu → Math Practice Test → Generate New Test.\n' +
+    '3. Go to the "Test" sheet and type your numeric answers in column C.\n' +
+    '4. Menu → Math Practice Test → Submit & Grade.\n' +
+    '5. View results on the Test sheet and score history on "Score History".\n\n' +
+    'Tip: Choose "Mix (All)" for a sub-topic to get a variety of questions within the topic.'
+  ).setWrap(true);
+  dash.getRange('A9:B14').mergeAcross();
+
+  // ── Test ──
+  var test = getOrCreateSheet(ss, 'Test');
+  setupTestSheet(test);
+
+  // ── Score History ──
+  var hist = getOrCreateSheet(ss, 'Score History');
+  hist.clear();
+  var histHeader = ['Date', 'Topic', 'Sub-Topic', 'Difficulty', 'Score', 'Percentage', 'Time Taken'];
+  hist.getRange(1, 1, 1, histHeader.length).setValues([histHeader]).setFontWeight('bold');
+  hist.setColumnWidth(1, 160);
+  hist.setColumnWidth(2, 220);
+  hist.setColumnWidth(3, 180);
+  hist.setColumnWidth(4, 100);
+  hist.setColumnWidth(5, 80);
+  hist.setColumnWidth(6, 100);
+  hist.setColumnWidth(7, 120);
+  hist.setFrozenRows(1);
+
+  // Activate Dashboard
+  ss.setActiveSheet(dash);
+  SpreadsheetApp.getUi().alert('Setup complete! Select a topic, sub-topic, and difficulty on the Dashboard, then use the menu to generate a test.');
+}
+
+function getOrCreateSheet(ss, name) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+  }
+  return sheet;
+}
+
+function setupTestSheet(sheet) {
+  sheet.clear();
+  sheet.setColumnWidth(1, 40);   // Q#
+  sheet.setColumnWidth(2, 480);  // Question
+  sheet.setColumnWidth(3, 120);  // Your Answer
+  sheet.setColumnWidth(4, 120);  // Correct Answer
+  sheet.setColumnWidth(5, 100);  // Result
+
+  var headers = ['#', 'Question', 'Your Answer', 'Correct Answer', 'Result'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+
+  for (var i = 1; i <= 10; i++) {
+    sheet.getRange(i + 1, 1).setValue(i);
+    sheet.getRange(i + 1, 2).setValue('');
+    sheet.getRange(i + 1, 3).setValue('');
+    sheet.getRange(i + 1, 4).setValue('');
+    sheet.getRange(i + 1, 5).setValue('');
+  }
+
+  sheet.hideColumns(4);
+  sheet.hideColumns(5);
+
+  sheet.getRange(13, 1).setValue('Score:').setFontWeight('bold');
+  sheet.getRange(13, 2).setValue('');
+  sheet.getRange(14, 1).setValue('Time:').setFontWeight('bold');
+  sheet.getRange(14, 2).setValue('');
+}
+
+// ─── Sub-Topic Dropdown Helpers ───────────────────────────────────────────────
+
+/**
+ * Reads the current topic from B4 and rebuilds the B5 sub-topic dropdown.
+ * Called by onEdit, refreshSubTopics menu item, and generateNewTest.
+ */
+function updateSubTopicDropdown(dash) {
+  var topic = dash.getRange('B4').getValue();
+  var subs = SUBTOPICS[topic];
+  if (!subs) return;
+  var subCell = dash.getRange('B5');
+  var currentVal = subCell.getValue();
+  var subRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(subs, true)
+    .setAllowInvalid(false)
+    .build();
+  subCell.setDataValidation(subRule);
+  // Keep current value if it exists in the new list, otherwise reset
+  if (subs.indexOf(currentVal) === -1) {
+    subCell.setValue(subs[0]);
+  }
+}
+
+/**
+ * Menu item: manually refresh the sub-topic dropdown for the selected topic.
+ */
+function refreshSubTopics() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dash = ss.getSheetByName('Dashboard');
+  if (!dash) { SpreadsheetApp.getUi().alert('Run "Setup App" first.'); return; }
+  updateSubTopicDropdown(dash);
+  SpreadsheetApp.getUi().alert('Sub-topics refreshed for: ' + dash.getRange('B4').getValue());
+}
+
+/**
+ * onEdit trigger — updates sub-topic dropdown when topic changes.
+ */
+function onEdit(e) {
+  try {
+    var sheet = e.source.getActiveSheet();
+    if (sheet.getName() !== 'Dashboard') return;
+    if (e.range.getRow() === 4 && e.range.getColumn() === 2) {
+      updateSubTopicDropdown(sheet);
+    }
+  } catch (err) {
+    // Simple trigger may silently fail; user can use Refresh Sub-Topics menu item
+  }
+}
+
+// ─── Generate New Test ───────────────────────────────────────────────────────
+
+function generateNewTest() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dash = ss.getSheetByName('Dashboard');
+  if (!dash) { SpreadsheetApp.getUi().alert('Run "Setup App" first.'); return; }
+
+  // Ensure sub-topic dropdown matches current topic
+  updateSubTopicDropdown(dash);
+
+  var topic = dash.getRange('B4').getValue();
+  var subTopic = dash.getRange('B5').getValue();
+  var difficulty = dash.getRange('B6').getValue();
+  if (!topic || !subTopic || !difficulty) {
+    SpreadsheetApp.getUi().alert('Please select a topic, sub-topic, and difficulty on the Dashboard.');
+    return;
+  }
+
+  var test = ss.getSheetByName('Test');
+  if (!test) { SpreadsheetApp.getUi().alert('Run "Setup App" first.'); return; }
+
+  setupTestSheet(test);
+
+  var questions = generateQuestions(topic, subTopic, difficulty, 10);
+  for (var i = 0; i < questions.length; i++) {
+    test.getRange(i + 2, 2).setValue(questions[i].question);
+    test.getRange(i + 2, 4).setValue(questions[i].answer);
+  }
+
+  // Start timer
+  PropertiesService.getDocumentProperties().setProperty('testStartTime', new Date().getTime().toString());
+
+  ss.setActiveSheet(test);
+  test.getRange('C2').activate();
+}
+
+// ─── Submit & Grade ──────────────────────────────────────────────────────────
+
+function submitAndGrade() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var test = ss.getSheetByName('Test');
+  var dash = ss.getSheetByName('Dashboard');
+  var hist = ss.getSheetByName('Score History');
+  if (!test || !dash || !hist) { SpreadsheetApp.getUi().alert('Run "Setup App" first.'); return; }
+
+  if (!test.getRange('B2').getValue()) {
+    SpreadsheetApp.getUi().alert('Generate a test first.');
+    return;
+  }
+
+  var score = 0;
+  for (var i = 0; i < 10; i++) {
+    var row = i + 2;
+    var userAnswer = test.getRange(row, 3).getValue();
+    var correctAnswer = test.getRange(row, 4).getValue();
+    var result;
+    if (userAnswer === '' || userAnswer === null) {
+      result = 'Skipped';
+    } else {
+      var num = parseFloat(userAnswer);
+      if (isNaN(num)) {
+        result = 'Invalid';
+      } else if (Math.abs(num - correctAnswer) <= 0.01) {
+        result = 'Correct';
+        score++;
+      } else {
+        result = 'Incorrect';
+      }
+    }
+    test.getRange(row, 5).setValue(result);
+    var color = result === 'Correct' ? '#d4edda' : (result === 'Incorrect' ? '#f8d7da' : '#fff3cd');
+    test.getRange(row, 5).setBackground(color);
+  }
+
+  test.showColumns(4);
+  test.showColumns(5);
+
+  var pct = Math.round(score / 10 * 100);
+  test.getRange(13, 2).setValue(score + ' / 10  (' + pct + '%)').setFontSize(13).setFontWeight('bold');
+
+  // Calculate elapsed time
+  var timeTaken = '';
+  var startProp = PropertiesService.getDocumentProperties().getProperty('testStartTime');
+  if (startProp) {
+    var elapsed = Math.floor((new Date().getTime() - parseInt(startProp, 10)) / 1000);
+    var mins = Math.floor(elapsed / 60);
+    var secs = elapsed % 60;
+    timeTaken = mins + 'm ' + (secs < 10 ? '0' : '') + secs + 's';
+    test.getRange(14, 2).setValue(timeTaken).setFontSize(13).setFontWeight('bold');
+    // Clear start time so re-submitting doesn't reuse it
+    PropertiesService.getDocumentProperties().deleteProperty('testStartTime');
+  } else {
+    test.getRange(14, 2).setValue('N/A');
+  }
+
+  var topic = dash.getRange('B4').getValue();
+  var subTopic = dash.getRange('B5').getValue();
+  var difficulty = dash.getRange('B6').getValue();
+  hist.appendRow([new Date(), topic, subTopic, difficulty, score + '/10', pct + '%', timeTaken || 'N/A']);
+
+  SpreadsheetApp.getUi().alert('Score: ' + score + '/10 (' + pct + '%)' + (timeTaken ? '\nTime: ' + timeTaken : '') + '\nResults saved to Score History.');
+}
+
+// ─── Clear Test ──────────────────────────────────────────────────────────────
+
+function clearTest() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var test = ss.getSheetByName('Test');
+  if (!test) { SpreadsheetApp.getUi().alert('Run "Setup App" first.'); return; }
+  setupTestSheet(test);
+}
+
+// ─── Question Generation ─────────────────────────────────────────────────────
+
+function generateQuestions(topic, subTopic, difficulty, count) {
+  var topicGens = SUB_GENERATORS[topic];
+  if (!topicGens) throw new Error('Unknown topic: ' + topic);
+
+  var questions = [];
+  if (subTopic === 'Mix (All)') {
+    // Get all sub-topic keys except 'Mix (All)'
+    var subKeys = SUBTOPICS[topic].slice(1);
+    for (var i = 0; i < count; i++) {
+      var pick = subKeys[randInt(0, subKeys.length - 1)];
+      questions.push(topicGens[pick](difficulty));
+    }
+  } else {
+    var gen = topicGens[subTopic];
+    if (!gen) throw new Error('Unknown sub-topic: ' + subTopic);
+    for (var i = 0; i < count; i++) {
+      questions.push(gen(difficulty));
+    }
+  }
+  return questions;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randNonZero(max) {
+  var v = randInt(1, max);
+  return Math.random() < 0.5 ? -v : v;
+}
+
+function fmtTerm(coeff, variable) {
+  if (coeff === 1) return variable;
+  if (coeff === -1) return '-' + variable;
+  return coeff + variable;
+}
+
+function paren(n) {
+  return n < 0 ? '(' + n + ')' : '' + n;
+}
+
+function ordinal(n) {
+  var s = ['th','st','nd','rd'];
+  var v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function shuffleArray(arr) {
+  var a = arr.slice();
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+  }
+  return a;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  SUB-TOPIC GENERATORS
+//  Structure: SUB_GENERATORS[topic][subTopic] = function(difficulty) → {question, answer}
+// ═════════════════════════════════════════════════════════════════════════════
+
+var SUB_GENERATORS = {};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. LINEAR EQUATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Linear Equations'] = {};
+
+// One-Step:  ax = c  or  x + b = c
+SUB_GENERATORS['Linear Equations']['One-Step Equations'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 10);
+    var a = randInt(2, 5);
+    var c = a * x;
+    return { question: 'Solve for x:  ' + a + 'x = ' + c, answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(-10, 10);
+    var a = randNonZero(6);
+    var c = a * x;
+    return { question: 'Solve for x:  ' + fmtTerm(a, 'x') + ' = ' + c, answer: x };
+  } else {
+    var x = randInt(-12, 12);
+    var a = randNonZero(8);
+    var c = a * x;
+    return { question: 'Solve for x:  ' + fmtTerm(a, 'x') + ' = ' + c, answer: x };
+  }
+};
+
+// Two-Step:  ax + b = c
+SUB_GENERATORS['Linear Equations']['Two-Step Equations'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 10);
+    var a = randInt(1, 5);
+    var b = randInt(1, 10);
+    var c = a * x + b;
+    return { question: 'Solve for x:  ' + a + 'x + ' + b + ' = ' + c, answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(-10, 10);
+    var a = randNonZero(6);
+    var b = randInt(-15, 15);
+    var c = a * x + b;
+    return { question: 'Solve for x:  ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' = ' + c, answer: x };
+  } else {
+    var x = randInt(-15, 15);
+    var a = randNonZero(8);
+    var b = randInt(-20, 20);
+    var c = a * x + b;
+    return { question: 'Solve for x:  ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' = ' + c, answer: x };
+  }
+};
+
+// Variables on Both Sides:  ax + b = cx + d
+SUB_GENERATORS['Linear Equations']['Variables on Both Sides'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 8);
+    var a = randInt(2, 5);
+    var cCoeff = randInt(1, a - 1);
+    var b = randInt(1, 10);
+    var d = a * x + b - cCoeff * x;
+    return { question: 'Solve for x:  ' + a + 'x + ' + b + ' = ' + cCoeff + 'x + ' + d, answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(-10, 10);
+    var a = randNonZero(5);
+    var cCoeff = randNonZero(5);
+    while (cCoeff === a) cCoeff = randNonZero(5);
+    var b = randInt(-15, 15);
+    var d = a * x + b - cCoeff * x;
+    return {
+      question: 'Solve for x:  ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' = ' + fmtTerm(cCoeff, 'x') + ' + ' + paren(d),
+      answer: x
+    };
+  } else {
+    var x = randInt(-10, 10);
+    var a = randNonZero(7);
+    var cCoeff = randNonZero(7);
+    while (cCoeff === a) cCoeff = randNonZero(7);
+    var b = randInt(-25, 25);
+    var d = a * x + b - cCoeff * x;
+    return {
+      question: 'Solve for x:  ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' = ' + fmtTerm(cCoeff, 'x') + ' + ' + paren(d),
+      answer: x
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. LINEAR INEQUALITIES
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Linear Inequalities'] = {};
+
+SUB_GENERATORS['Linear Inequalities']['One-Step Inequalities'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 10);
+    var a = randInt(2, 5);
+    var c = a * x;
+    return { question: 'Solve: ' + a + 'x < ' + c + '. What is the boundary value of x?', answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(-10, 10);
+    var a = randNonZero(6);
+    var c = a * x;
+    var op = a > 0 ? '<' : '>';
+    return { question: 'Solve: ' + fmtTerm(a, 'x') + ' ' + op + ' ' + c + '. What is the boundary value of x?', answer: x };
+  } else {
+    var x = randInt(-15, 15);
+    var a = randNonZero(9);
+    var c = a * x;
+    var op = a > 0 ? '≤' : '≥';
+    return { question: 'Solve: ' + fmtTerm(a, 'x') + ' ' + op + ' ' + c + '. What is the boundary value of x?', answer: x };
+  }
+};
+
+SUB_GENERATORS['Linear Inequalities']['Two-Step Inequalities'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 10);
+    var a = randInt(1, 5);
+    var b = randInt(1, 10);
+    var c = a * x + b;
+    return { question: 'Solve: ' + a + 'x + ' + b + ' < ' + c + '. What is the boundary value of x?', answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(-10, 10);
+    var a = randNonZero(6);
+    var b = randInt(-15, 15);
+    var c = a * x + b;
+    var op = a > 0 ? '≥' : '≤';
+    return { question: 'Solve: ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' ' + op + ' ' + c + '. What is the boundary value of x?', answer: x };
+  } else {
+    var x = randInt(-12, 12);
+    var a = randNonZero(8);
+    var b = randInt(-20, 20);
+    var c = a * x + b;
+    var op = a > 0 ? '>' : '<';
+    return { question: 'Solve: ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' ' + op + ' ' + c + '. What is the boundary value of x?', answer: x };
+  }
+};
+
+SUB_GENERATORS['Linear Inequalities']['Compound Inequalities'] = function(diff) {
+  if (diff === 'Easy') {
+    // b < x + a < c  →  boundary = lower bound
+    var x = randInt(1, 8);
+    var a = randInt(1, 5);
+    var lo = x + a - randInt(1, 3);
+    var hi = x + a + randInt(1, 5);
+    return { question: 'Solve: ' + lo + ' < x + ' + a + ' < ' + hi + '. What is the lower bound of x?', answer: lo - a };
+  } else if (diff === 'Medium') {
+    var x = randInt(-5, 5);
+    var a = randNonZero(4);
+    var b = randInt(-10, 10);
+    var val = a * x + b;
+    var lo = val - randInt(1, 5);
+    var hi = val + randInt(1, 5);
+    return {
+      question: 'Solve: ' + lo + ' ≤ ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' ≤ ' + hi + '. What is the lower bound of x? (Round to nearest integer if needed.)',
+      answer: Math.ceil((lo - b) / a) * (a > 0 ? 1 : 1) // For positive a, lower bound = (lo-b)/a
+    };
+  } else {
+    var x = randInt(-8, 8);
+    var a = randInt(2, 6);
+    var b = randInt(-15, 15);
+    var val = a * x + b;
+    var lo = val - randInt(1, 10);
+    var hi = val + randInt(1, 10);
+    // lower bound of x = (lo - b) / a
+    var ans = (lo - b) / a;
+    // Ensure clean answer
+    var lo2 = a * randInt(-10, 0) + b;
+    var hi2 = a * randInt(1, 10) + b;
+    var ansClean = (lo2 - b) / a;
+    return {
+      question: 'Solve: ' + lo2 + ' < ' + fmtTerm(a, 'x') + ' + ' + paren(b) + ' < ' + hi2 + '. What is the lower bound of x?',
+      answer: ansClean
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. SYSTEMS OF EQUATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Systems of Equations'] = {};
+
+SUB_GENERATORS['Systems of Equations']['Substitution'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 5);
+    var y = randInt(1, 5);
+    var a = randInt(1, 3);
+    return {
+      question: 'y = ' + fmtTerm(a, 'x') + ' + ' + (y - a * x) + '  and  x + y = ' + (x + y) + '. What is x?',
+      answer: x
+    };
+  } else if (diff === 'Medium') {
+    var x = randInt(-5, 5);
+    var y = randInt(-5, 5);
+    var m = randNonZero(3);
+    var b = y - m * x;
+    var a2 = randInt(1, 3);
+    var b2 = randNonZero(3);
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: 'y = ' + fmtTerm(m, 'x') + ' + ' + paren(b) + '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2, 'y') + ' = ' + c2 + '. What is x?',
+      answer: x
+    };
+  } else {
+    var x = randInt(-8, 8);
+    var y = randInt(-8, 8);
+    var m = randNonZero(4);
+    var b = y - m * x;
+    var a2 = randNonZero(4);
+    var b2 = randNonZero(4);
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: 'y = ' + fmtTerm(m, 'x') + ' + ' + paren(b) + '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2, 'y') + ' = ' + c2 + '. What is x?',
+      answer: x
+    };
+  }
+};
+
+SUB_GENERATORS['Systems of Equations']['Elimination'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 5);
+    var y = randInt(1, 5);
+    return {
+      question: 'x + y = ' + (x + y) + '  and  x − y = ' + (x - y) + '. What is x?',
+      answer: x
+    };
+  } else if (diff === 'Medium') {
+    var x = randInt(-5, 5);
+    var y = randInt(-5, 5);
+    var a1 = randInt(1, 3), b1 = randNonZero(3);
+    var c1 = a1 * x + b1 * y;
+    var a2 = randNonZero(3), b2 = -b1; // designed so b's cancel when added
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1, 'y') + ' = ' + c1 +
+                '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2, 'y') + ' = ' + c2 + '. What is x?',
+      answer: x
+    };
+  } else {
+    var x = randInt(-8, 8);
+    var y = randInt(-8, 8);
+    var a1 = randNonZero(4), b1 = randNonZero(4);
+    var c1 = a1 * x + b1 * y;
+    var a2 = randNonZero(4), b2 = randNonZero(4);
+    while (a1 * b2 === a2 * b1) { a2 = randNonZero(4); b2 = randNonZero(4); }
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1, 'y') + ' = ' + c1 +
+                '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2, 'y') + ' = ' + c2 + '. What is x?',
+      answer: x
+    };
+  }
+};
+
+SUB_GENERATORS['Systems of Equations']['Word Problems'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(2, 10);
+    var y = randInt(2, 10);
+    return {
+      question: 'Apples cost $' + x + ' and bananas cost $' + y + ' each. You buy 1 apple and 1 banana for $' + (x + y) +
+                '. If 2 apples cost $' + (2 * x) + ', what is the cost of one apple?',
+      answer: x
+    };
+  } else if (diff === 'Medium') {
+    var x = randInt(3, 15);
+    var y = randInt(3, 15);
+    var a1 = randInt(2, 4), b1 = randInt(1, 3);
+    var c1 = a1 * x + b1 * y;
+    var a2 = randInt(1, 3), b2 = randInt(2, 4);
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: a1 + ' notebooks and ' + b1 + ' pens cost $' + c1 + '. ' +
+                a2 + ' notebooks and ' + b2 + ' pens cost $' + c2 + '. What is the price of one notebook?',
+      answer: x
+    };
+  } else {
+    var x = randInt(5, 20);
+    var y = randInt(5, 20);
+    var a1 = randInt(2, 5), b1 = randInt(2, 5);
+    var c1 = a1 * x + b1 * y;
+    var a2 = randInt(2, 5), b2 = randInt(2, 5);
+    while (a1 * b2 === a2 * b1) { a2 = randInt(2, 5); b2 = randInt(2, 5); }
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: 'A store sells shirts and hats. ' + a1 + ' shirts and ' + b1 + ' hats cost $' + c1 + '. ' +
+                a2 + ' shirts and ' + b2 + ' hats cost $' + c2 + '. What is the price of one shirt?',
+      answer: x
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. FUNCTIONS & GRAPHING
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Functions & Graphing'] = {};
+
+SUB_GENERATORS['Functions & Graphing']['Evaluate Functions'] = function(diff) {
+  if (diff === 'Easy') {
+    var m = randInt(1, 5);
+    var b = randInt(0, 10);
+    var xVal = randInt(1, 5);
+    return { question: 'f(x) = ' + fmtTerm(m, 'x') + ' + ' + b + '. Find f(' + xVal + ').', answer: m * xVal + b };
+  } else if (diff === 'Medium') {
+    var m = randNonZero(6);
+    var b = randInt(-10, 10);
+    var xVal = randInt(-5, 5);
+    return { question: 'f(x) = ' + fmtTerm(m, 'x') + ' + ' + paren(b) + '. Find f(' + xVal + ').', answer: m * xVal + b };
+  } else {
+    var a = randNonZero(3);
+    var bC = randNonZero(5);
+    var c = randInt(-10, 10);
+    var xVal = randInt(-4, 4);
+    return {
+      question: 'f(x) = ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(bC, 'x') + ' + ' + paren(c) + '. Find f(' + xVal + ').',
+      answer: a * xVal * xVal + bC * xVal + c
+    };
+  }
+};
+
+SUB_GENERATORS['Functions & Graphing']['Slope'] = function(diff) {
+  if (diff === 'Easy') {
+    var m = randInt(1, 5);
+    var x1 = randInt(0, 3), x2 = x1 + randInt(1, 4);
+    var b = randInt(0, 5);
+    var y1 = m * x1 + b, y2 = m * x2 + b;
+    return { question: 'Find the slope of the line through (' + x1 + ', ' + y1 + ') and (' + x2 + ', ' + y2 + ').', answer: m };
+  } else if (diff === 'Medium') {
+    var m = randNonZero(5);
+    var x1 = randInt(-5, 0), x2 = x1 + randInt(1, 5);
+    var b = randInt(-10, 10);
+    var y1 = m * x1 + b, y2 = m * x2 + b;
+    return { question: 'Find the slope of the line through (' + x1 + ', ' + y1 + ') and (' + x2 + ', ' + y2 + ').', answer: m };
+  } else {
+    var m = randNonZero(8);
+    var x1 = randInt(-8, -1), x2 = x1 + randInt(1, 4);
+    var b = randInt(-15, 15);
+    var y1 = m * x1 + b, y2 = m * x2 + b;
+    return { question: 'Find the slope of the line through (' + x1 + ', ' + y1 + ') and (' + x2 + ', ' + y2 + ').', answer: m };
+  }
+};
+
+SUB_GENERATORS['Functions & Graphing']['Intercepts'] = function(diff) {
+  if (diff === 'Easy') {
+    // y-intercept of y = mx + b
+    var m = randInt(1, 5);
+    var b = randInt(1, 10);
+    return { question: 'What is the y-intercept of y = ' + fmtTerm(m, 'x') + ' + ' + b + '?', answer: b };
+  } else if (diff === 'Medium') {
+    // x-intercept: 0 = mx + b  → x = -b/m, ensure integer
+    var m = randNonZero(5);
+    var x = randInt(-8, 8);
+    var b = -m * x;
+    return { question: 'What is the x-intercept of y = ' + fmtTerm(m, 'x') + ' + ' + paren(b) + '?', answer: x };
+  } else {
+    // y-intercept of ax + by = c  → y = c/b when x=0
+    var b = randNonZero(4);
+    var a = randNonZero(5);
+    var yInt = randInt(-8, 8);
+    var c = b * yInt;
+    return {
+      question: 'What is the y-intercept of ' + fmtTerm(a, 'x') + ' + ' + fmtTerm(b, 'y') + ' = ' + c + '?',
+      answer: yInt
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. ARITHMETIC & GEOMETRIC SEQUENCES
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Arithmetic & Geometric Sequences'] = {};
+
+SUB_GENERATORS['Arithmetic & Geometric Sequences']['Arithmetic Sequences'] = function(diff) {
+  if (diff === 'Easy') {
+    var a1 = randInt(1, 10);
+    var d = randInt(1, 5);
+    var n = randInt(5, 10);
+    return { question: 'Arithmetic sequence: first term = ' + a1 + ', common difference = ' + d + '. Find the ' + ordinal(n) + ' term.', answer: a1 + (n - 1) * d };
+  } else if (diff === 'Medium') {
+    var a1 = randInt(-10, 10);
+    var d = randNonZero(5);
+    var n = randInt(8, 15);
+    return { question: 'Arithmetic sequence: first term = ' + a1 + ', common difference = ' + d + '. Find the ' + ordinal(n) + ' term.', answer: a1 + (n - 1) * d };
+  } else {
+    var a1 = randInt(-15, 15);
+    var d = randNonZero(7);
+    var n = randInt(10, 25);
+    return { question: 'Arithmetic sequence: first term = ' + a1 + ', common difference = ' + d + '. Find the ' + ordinal(n) + ' term.', answer: a1 + (n - 1) * d };
+  }
+};
+
+SUB_GENERATORS['Arithmetic & Geometric Sequences']['Geometric Sequences'] = function(diff) {
+  if (diff === 'Easy') {
+    var a1 = randInt(1, 5);
+    var r = randInt(2, 3);
+    var n = randInt(3, 5);
+    return { question: 'Geometric sequence: first term = ' + a1 + ', common ratio = ' + r + '. Find the ' + ordinal(n) + ' term.', answer: a1 * Math.pow(r, n - 1) };
+  } else if (diff === 'Medium') {
+    var a1 = randInt(1, 4);
+    var r = randInt(2, 4);
+    var n = randInt(4, 6);
+    return { question: 'Geometric sequence: first term = ' + a1 + ', common ratio = ' + r + '. Find the ' + ordinal(n) + ' term.', answer: a1 * Math.pow(r, n - 1) };
+  } else {
+    var a1 = randInt(1, 3);
+    var r = randNonZero(3);
+    while (r === 1 || r === -1) r = randNonZero(3);
+    var n = randInt(4, 6);
+    return { question: 'Geometric sequence: first term = ' + a1 + ', common ratio = ' + r + '. Find the ' + ordinal(n) + ' term.', answer: a1 * Math.pow(r, n - 1) };
+  }
+};
+
+SUB_GENERATORS['Arithmetic & Geometric Sequences']['Sequence Sums'] = function(diff) {
+  if (diff === 'Easy') {
+    // Sum of first n terms of arithmetic: S = n/2 * (2a1 + (n-1)d)
+    var a1 = randInt(1, 5);
+    var d = randInt(1, 3);
+    var n = randInt(3, 6);
+    var s = n * (2 * a1 + (n - 1) * d) / 2;
+    return { question: 'Arithmetic sequence: first term = ' + a1 + ', common difference = ' + d + '. Find the sum of the first ' + n + ' terms.', answer: s };
+  } else if (diff === 'Medium') {
+    var a1 = randInt(1, 8);
+    var d = randInt(1, 5);
+    var n = randInt(5, 10);
+    var s = n * (2 * a1 + (n - 1) * d) / 2;
+    return { question: 'Arithmetic sequence: first term = ' + a1 + ', common difference = ' + d + '. Find the sum of the first ' + n + ' terms.', answer: s };
+  } else {
+    var a1 = randInt(-10, 10);
+    var d = randNonZero(5);
+    var n = randInt(8, 15);
+    var s = n * (2 * a1 + (n - 1) * d) / 2;
+    return { question: 'Arithmetic sequence: first term = ' + a1 + ', common difference = ' + d + '. Find the sum of the first ' + n + ' terms.', answer: s };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. EXPONENTS & RADICALS
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Exponents & Radicals'] = {};
+
+SUB_GENERATORS['Exponents & Radicals']['Exponent Rules'] = function(diff) {
+  if (diff === 'Easy') {
+    // a^m * a^n = a^(m+n)
+    var base = randInt(2, 4);
+    var m = randInt(1, 2);
+    var n = randInt(1, 2);
+    return { question: 'Simplify and evaluate: ' + base + '^' + m + ' × ' + base + '^' + n, answer: Math.pow(base, m + n) };
+  } else if (diff === 'Medium') {
+    // (a^m)^n = a^(mn)
+    var base = randInt(2, 3);
+    var m = randInt(1, 3);
+    var n = randInt(1, 2);
+    return { question: 'Evaluate: (' + base + '^' + m + ')^' + n, answer: Math.pow(base, m * n) };
+  } else {
+    // a^m / a^n = a^(m-n)
+    var base = randInt(2, 4);
+    var m = randInt(3, 6);
+    var n = randInt(1, m - 1);
+    return { question: 'Evaluate: ' + base + '^' + m + ' ÷ ' + base + '^' + n, answer: Math.pow(base, m - n) };
+  }
+};
+
+SUB_GENERATORS['Exponents & Radicals']['Evaluate Powers'] = function(diff) {
+  if (diff === 'Easy') {
+    var base = randInt(2, 5);
+    var exp = randInt(2, 3);
+    return { question: 'Evaluate: ' + base + '^' + exp, answer: Math.pow(base, exp) };
+  } else if (diff === 'Medium') {
+    var base = randInt(2, 6);
+    var exp = randInt(2, 4);
+    return { question: 'Evaluate: ' + base + '^' + exp, answer: Math.pow(base, exp) };
+  } else {
+    var base = randNonZero(4);
+    var exp = randInt(2, 4);
+    return { question: 'Evaluate: ' + paren(base) + '^' + exp, answer: Math.pow(base, exp) };
+  }
+};
+
+SUB_GENERATORS['Exponents & Radicals']['Square Roots'] = function(diff) {
+  if (diff === 'Easy') {
+    var root = randInt(1, 10);
+    return { question: 'Evaluate: √' + (root * root), answer: root };
+  } else if (diff === 'Medium') {
+    var root = randInt(2, 15);
+    return { question: 'Evaluate: √' + (root * root), answer: root };
+  } else {
+    // √(a²·b) simplified: a√b → just ask for √(perfect square)
+    var root = randInt(10, 25);
+    return { question: 'Evaluate: √' + (root * root), answer: root };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. POLYNOMIALS & FACTORING
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Polynomials & Factoring'] = {};
+
+SUB_GENERATORS['Polynomials & Factoring']['Evaluate Polynomials'] = function(diff) {
+  if (diff === 'Easy') {
+    var a = randInt(1, 3);
+    var b = randInt(1, 5);
+    var xVal = randInt(1, 4);
+    return { question: 'Evaluate ' + fmtTerm(a, 'x') + ' + ' + b + ' when x = ' + xVal + '.', answer: a * xVal + b };
+  } else if (diff === 'Medium') {
+    var a = randNonZero(3);
+    var b = randInt(-8, 8);
+    var c = randInt(-5, 5);
+    var xVal = randInt(-3, 3);
+    return { question: 'Evaluate ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + ' when x = ' + xVal + '.', answer: a * xVal * xVal + b * xVal + c };
+  } else {
+    var a = randNonZero(2);
+    var b = randNonZero(4);
+    var c = randInt(-8, 8);
+    var d = randInt(-5, 5);
+    var xVal = randInt(-3, 3);
+    return {
+      question: 'Evaluate ' + fmtTerm(a, 'x³') + ' + ' + fmtTerm(b, 'x²') + ' + ' + fmtTerm(c, 'x') + ' + ' + paren(d) + ' when x = ' + xVal + '.',
+      answer: a * xVal * xVal * xVal + b * xVal * xVal + c * xVal + d
+    };
+  }
+};
+
+SUB_GENERATORS['Polynomials & Factoring']['Multiply Polynomials'] = function(diff) {
+  if (diff === 'Easy') {
+    // (x + a)(x + b) → what is the constant term?
+    var a = randInt(1, 6);
+    var b = randInt(1, 6);
+    return { question: 'Expand (x + ' + a + ')(x + ' + b + '). What is the constant term?', answer: a * b };
+  } else if (diff === 'Medium') {
+    // (x + a)(x + b) → what is the coefficient of x?
+    var a = randInt(-6, 6);
+    var b = randInt(-6, 6);
+    return { question: 'Expand (x + ' + paren(a) + ')(x + ' + paren(b) + '). What is the coefficient of x?', answer: a + b };
+  } else {
+    // Full evaluation
+    var p = randNonZero(3);
+    var q = randInt(-5, 5);
+    var r = randNonZero(3);
+    var s = randInt(-5, 5);
+    var xVal = randInt(-3, 3);
+    var A = p * r;
+    var B = p * s + q * r;
+    var C = q * s;
+    return {
+      question: 'Evaluate (' + fmtTerm(p, 'x') + ' + ' + paren(q) + ')(' + fmtTerm(r, 'x') + ' + ' + paren(s) + ') when x = ' + xVal + '.',
+      answer: (p * xVal + q) * (r * xVal + s)
+    };
+  }
+};
+
+SUB_GENERATORS['Polynomials & Factoring']['Factor Polynomials'] = function(diff) {
+  if (diff === 'Easy') {
+    // x² - a² = (x+a)(x-a), what is a?
+    var a = randInt(1, 10);
+    return { question: 'Factor: x² − ' + (a * a) + '. This equals (x + a)(x − a). What is a?', answer: a };
+  } else if (diff === 'Medium') {
+    var r = randInt(1, 8);
+    var s = randInt(1, 8);
+    var bCoeff = -(r + s);
+    var c = r * s;
+    return { question: 'Solve x² + ' + paren(bCoeff) + 'x + ' + c + ' = 0. What is the smaller root?', answer: Math.min(r, s) };
+  } else {
+    var r = randInt(-8, 8);
+    var s = randInt(-8, 8);
+    while (s === r) s = randInt(-8, 8);
+    var bCoeff = -(r + s);
+    var c = r * s;
+    return { question: 'Solve x² + ' + paren(bCoeff) + 'x + ' + paren(c) + ' = 0. What is the smaller root?', answer: Math.min(r, s) };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. QUADRATIC EQUATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Quadratic Equations'] = {};
+
+SUB_GENERATORS['Quadratic Equations']['Perfect Squares'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 10);
+    return { question: 'Solve: x² = ' + (x * x) + '. Give the positive root.', answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(1, 12);
+    var c = randInt(1, 20);
+    return { question: 'Solve: x² + ' + c + ' = ' + (x * x + c) + '. Give the positive root.', answer: x };
+  } else {
+    var x = randInt(1, 15);
+    var a = randInt(2, 4);
+    return { question: 'Solve: ' + a + 'x² = ' + (a * x * x) + '. Give the positive root.', answer: x };
+  }
+};
+
+SUB_GENERATORS['Quadratic Equations']['Factoring Quadratics'] = function(diff) {
+  if (diff === 'Easy') {
+    // x(x - a) = 0 → roots 0, a
+    var a = randInt(1, 10);
+    return { question: 'Solve: x² − ' + a + 'x = 0. Give the non-zero root.', answer: a };
+  } else if (diff === 'Medium') {
+    var r = randInt(-5, 5);
+    var s = randInt(-5, 5);
+    while (s === r) s = randInt(-5, 5);
+    var bCoeff = -(r + s);
+    var c = r * s;
+    return { question: 'Solve: x² + ' + paren(bCoeff) + 'x + ' + paren(c) + ' = 0. Give the larger root.', answer: Math.max(r, s) };
+  } else {
+    var r = randInt(-8, 8);
+    var s = randInt(-8, 8);
+    while (s === r) s = randInt(-8, 8);
+    var a = randInt(1, 3);
+    var bCoeff = -a * (r + s);
+    var c = a * r * s;
+    return { question: 'Solve: ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(bCoeff, 'x') + ' + ' + paren(c) + ' = 0. Give the larger root.', answer: Math.max(r, s) };
+  }
+};
+
+SUB_GENERATORS['Quadratic Equations']['Standard Form'] = function(diff) {
+  if (diff === 'Easy') {
+    // Identify a, b, or c from ax² + bx + c
+    var a = randInt(1, 5);
+    var b = randInt(-10, 10);
+    var c = randInt(-10, 10);
+    var ask = ['a', 'b', 'c'][randInt(0, 2)];
+    var ans = ask === 'a' ? a : (ask === 'b' ? b : c);
+    return { question: 'In the equation ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + ' = 0, what is the value of ' + ask + '?', answer: ans };
+  } else if (diff === 'Medium') {
+    // Vertex x = -b/(2a), integer result
+    var a = randInt(1, 3);
+    var xv = randInt(-5, 5);
+    var b = -2 * a * xv;
+    var c = randInt(-10, 10);
+    return { question: 'For f(x) = ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + ', find the x-coordinate of the vertex.', answer: xv };
+  } else {
+    // Discriminant b²-4ac
+    var a = randInt(1, 3);
+    var b = randInt(-6, 6);
+    var c = randInt(-6, 6);
+    var disc = b * b - 4 * a * c;
+    return { question: 'Find the discriminant of ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + ' = 0.', answer: disc };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. STATISTICS & DATA ANALYSIS
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Statistics & Data Analysis'] = {};
+
+SUB_GENERATORS['Statistics & Data Analysis']['Mean'] = function(diff) {
+  if (diff === 'Easy') {
+    var nums = [];
+    for (var i = 0; i < 5; i++) nums.push(randInt(1, 20));
+    var sum = nums.reduce(function(a, b) { return a + b; }, 0);
+    var rem = sum % 5;
+    nums[0] += (5 - rem) % 5;
+    sum = nums.reduce(function(a, b) { return a + b; }, 0);
+    return { question: 'Find the mean of: ' + nums.join(', '), answer: sum / 5 };
+  } else if (diff === 'Medium') {
+    var count = 6;
+    var nums = [];
+    for (var i = 0; i < count; i++) nums.push(randInt(1, 30));
+    var sum = nums.reduce(function(a, b) { return a + b; }, 0);
+    var rem = sum % count;
+    nums[0] += (count - rem) % count;
+    sum = nums.reduce(function(a, b) { return a + b; }, 0);
+    return { question: 'Find the mean of: ' + shuffleArray(nums).join(', '), answer: sum / count };
+  } else {
+    var count = 8;
+    var nums = [];
+    for (var i = 0; i < count; i++) nums.push(randInt(-20, 40));
+    var sum = nums.reduce(function(a, b) { return a + b; }, 0);
+    var rem = ((sum % count) + count) % count;
+    nums[0] += (count - rem) % count;
+    sum = nums.reduce(function(a, b) { return a + b; }, 0);
+    return { question: 'Find the mean of: ' + shuffleArray(nums).join(', '), answer: sum / count };
+  }
+};
+
+SUB_GENERATORS['Statistics & Data Analysis']['Median'] = function(diff) {
+  if (diff === 'Easy') {
+    var nums = [];
+    for (var i = 0; i < 5; i++) nums.push(randInt(1, 20));
+    nums.sort(function(a, b) { return a - b; });
+    var ans = nums[2];
+    return { question: 'Find the median of: ' + shuffleArray(nums).join(', '), answer: ans };
+  } else if (diff === 'Medium') {
+    var nums = [];
+    for (var i = 0; i < 7; i++) nums.push(randInt(1, 30));
+    nums.sort(function(a, b) { return a - b; });
+    var ans = nums[3];
+    return { question: 'Find the median of: ' + shuffleArray(nums).join(', '), answer: ans };
+  } else {
+    var nums = [];
+    for (var i = 0; i < 9; i++) nums.push(randInt(-15, 40));
+    nums.sort(function(a, b) { return a - b; });
+    var ans = nums[4];
+    return { question: 'Find the median of: ' + shuffleArray(nums).join(', '), answer: ans };
+  }
+};
+
+SUB_GENERATORS['Statistics & Data Analysis']['Range'] = function(diff) {
+  if (diff === 'Easy') {
+    var nums = [];
+    for (var i = 0; i < 5; i++) nums.push(randInt(1, 20));
+    return { question: 'Find the range of: ' + shuffleArray(nums).join(', '), answer: Math.max.apply(null, nums) - Math.min.apply(null, nums) };
+  } else if (diff === 'Medium') {
+    var nums = [];
+    for (var i = 0; i < 7; i++) nums.push(randInt(-10, 30));
+    return { question: 'Find the range of: ' + shuffleArray(nums).join(', '), answer: Math.max.apply(null, nums) - Math.min.apply(null, nums) };
+  } else {
+    var nums = [];
+    for (var i = 0; i < 10; i++) nums.push(randInt(-30, 50));
+    return { question: 'Find the range of: ' + shuffleArray(nums).join(', '), answer: Math.max.apply(null, nums) - Math.min.apply(null, nums) };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. GEOMETRY
+// ─────────────────────────────────────────────────────────────────────────────
+SUB_GENERATORS['Geometry'] = {};
+
+SUB_GENERATORS['Geometry']['Area'] = function(diff) {
+  if (diff === 'Easy') {
+    var l = randInt(2, 10);
+    var w = randInt(2, 10);
+    return { question: 'Find the area of a rectangle with length ' + l + ' and width ' + w + '.', answer: l * w };
+  } else if (diff === 'Medium') {
+    var shapes = ['triangle', 'parallelogram'];
+    var pick = shapes[randInt(0, shapes.length - 1)];
+    if (pick === 'triangle') {
+      var b = randInt(2, 12);
+      var h = randInt(2, 12);
+      // ensure even product for clean answer
+      if ((b * h) % 2 !== 0) b++;
+      return { question: 'Find the area of a triangle with base ' + b + ' and height ' + h + '.', answer: b * h / 2 };
+    } else {
+      var b = randInt(2, 12);
+      var h = randInt(2, 10);
+      return { question: 'Find the area of a parallelogram with base ' + b + ' and height ' + h + '.', answer: b * h };
+    }
+  } else {
+    var shapes = ['trapezoid', 'circle'];
+    var pick = shapes[randInt(0, shapes.length - 1)];
+    if (pick === 'trapezoid') {
+      var a = randInt(3, 10);
+      var b = randInt(3, 10);
+      var h = randInt(2, 8);
+      if (((a + b) * h) % 2 !== 0) h = h + 1;
+      return { question: 'Find the area of a trapezoid with bases ' + a + ' and ' + b + ' and height ' + h + '.', answer: (a + b) * h / 2 };
+    } else {
+      var r = randInt(1, 10);
+      var area = Math.round(Math.PI * r * r * 100) / 100;
+      return { question: 'Find the area of a circle with radius ' + r + '. (Use π ≈ 3.14, round to nearest hundredth.)', answer: Math.round(3.14 * r * r * 100) / 100 };
+    }
+  }
+};
+
+SUB_GENERATORS['Geometry']['Volume'] = function(diff) {
+  if (diff === 'Easy') {
+    var s = randInt(2, 8);
+    return { question: 'Find the volume of a cube with side length ' + s + '.', answer: s * s * s };
+  } else if (diff === 'Medium') {
+    var l = randInt(2, 8);
+    var w = randInt(2, 8);
+    var h = randInt(2, 8);
+    return { question: 'Find the volume of a rectangular prism with length ' + l + ', width ' + w + ', and height ' + h + '.', answer: l * w * h };
+  } else {
+    var shapes = ['cylinder', 'prism'];
+    var pick = shapes[randInt(0, shapes.length - 1)];
+    if (pick === 'cylinder') {
+      var r = randInt(1, 6);
+      var h = randInt(2, 10);
+      return { question: 'Find the volume of a cylinder with radius ' + r + ' and height ' + h + '. (Use π ≈ 3.14, round to nearest hundredth.)', answer: Math.round(3.14 * r * r * h * 100) / 100 };
+    } else {
+      var l = randInt(3, 10);
+      var w = randInt(3, 10);
+      var h = randInt(3, 10);
+      return { question: 'Find the volume of a rectangular prism with length ' + l + ', width ' + w + ', and height ' + h + '.', answer: l * w * h };
+    }
+  }
+};
+
+SUB_GENERATORS['Geometry']['Pythagorean Theorem'] = function(diff) {
+  if (diff === 'Easy') {
+    var triples = [[3,4,5],[6,8,10],[5,12,13]];
+    var t = triples[randInt(0, triples.length - 1)];
+    return { question: 'A right triangle has legs ' + t[0] + ' and ' + t[1] + '. Find the hypotenuse.', answer: t[2] };
+  } else if (diff === 'Medium') {
+    var triples = [[3,4,5],[5,12,13],[8,15,17],[7,24,25]];
+    var t = triples[randInt(0, triples.length - 1)];
+    var k = randInt(1, 3);
+    return { question: 'A right triangle has legs ' + (t[0]*k) + ' and ' + (t[1]*k) + '. Find the hypotenuse.', answer: t[2] * k };
+  } else {
+    // Given hypotenuse and one leg, find other leg
+    var triples = [[3,4,5],[5,12,13],[8,15,17],[7,24,25],[9,40,41]];
+    var t = triples[randInt(0, triples.length - 1)];
+    var k = randInt(1, 2);
+    var legIdx = randInt(0, 1);
+    var knownLeg = t[legIdx] * k;
+    var hyp = t[2] * k;
+    var ans = t[1 - legIdx] * k;
+    return { question: 'A right triangle has hypotenuse ' + hyp + ' and one leg ' + knownLeg + '. Find the other leg.', answer: ans };
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  NEW SUB-TOPIC GENERATORS
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. LINEAR EQUATIONS — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Distributive Property:  a(bx + c) = d
+SUB_GENERATORS['Linear Equations']['Distributive Property'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 8);
+    var a = randInt(2, 4);
+    var b = 1;
+    var c = randInt(1, 5);
+    var d = a * (b * x + c);
+    return { question: 'Solve for x:  ' + a + '(x + ' + c + ') = ' + d, answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(-8, 8);
+    var a = randNonZero(4);
+    var b = randInt(1, 3);
+    var c = randInt(-8, 8);
+    var d = a * (b * x + c);
+    return { question: 'Solve for x:  ' + a + '(' + fmtTerm(b, 'x') + ' + ' + paren(c) + ') = ' + d, answer: x };
+  } else {
+    // a(bx + c) + d = e(fx + g)
+    var x = randInt(-6, 6);
+    var a = randNonZero(3);
+    var b = randInt(1, 3);
+    var c = randInt(-5, 5);
+    var e = randNonZero(3);
+    var f = randInt(1, 3);
+    while (a * b === e * f) f = randInt(1, 3);
+    var g = randInt(-5, 5);
+    var left = a * (b * x + c);
+    var right = e * (f * x + g);
+    var d = right - left + randInt(-10, 10);
+    // recalc: a(bx+c) + d2 = e(fx+g), solve: a*b*x + a*c + d2 = e*f*x + e*g
+    // d2 = e*f*x + e*g - a*b*x - a*c  →  pick x, compute d2
+    var d2 = (e * f - a * b) * x + e * g - a * c;
+    // But we need a*b != e*f ensured above
+    // rephrase: a(bx+c) + d2 = e(fx+g)
+    // Actually let's keep it simpler
+    var lhs = a * (b * x + c);
+    var extraD = randInt(-10, 10);
+    var rhs = lhs + extraD;
+    return {
+      question: 'Solve for x:  ' + a + '(' + fmtTerm(b, 'x') + ' + ' + paren(c) + ') + ' + paren(extraD) + ' = ' + (lhs + extraD),
+      answer: x
+    };
+  }
+};
+
+// Word Problems (Linear Equations)
+SUB_GENERATORS['Linear Equations']['Word Problems'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(2, 15);
+    var extra = randInt(1, 10);
+    var total = x + (x + extra);
+    return { question: 'Two numbers differ by ' + extra + ' and their sum is ' + total + '. What is the smaller number?', answer: x };
+  } else if (diff === 'Medium') {
+    var age = randInt(5, 15);
+    var parentExtra = randInt(20, 30);
+    var years = randInt(2, 8);
+    var futureSum = (age + years) + (age + parentExtra + years);
+    return {
+      question: 'A child is ' + age + ' years old and their parent is ' + (age + parentExtra) + ' years old. In how many years will their ages sum to ' + futureSum + '?',
+      answer: years
+    };
+  } else {
+    var x = randInt(5, 30);
+    var rate1 = randInt(2, 6);
+    var rate2 = randInt(2, 6);
+    while (rate2 === rate1) rate2 = randInt(2, 6);
+    var start = randInt(10, 50);
+    var total = start + rate1 * x;
+    return {
+      question: 'A tank has ' + start + ' gallons. Water flows in at ' + rate1 + ' gallons/min. After how many minutes will it have ' + total + ' gallons?',
+      answer: x
+    };
+  }
+};
+
+// Absolute Value Equations:  |ax + b| = c
+SUB_GENERATORS['Linear Equations']['Absolute Value Equations'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 10);
+    var c = x;
+    return { question: 'Solve: |x| = ' + c + '. Give the positive solution.', answer: x };
+  } else if (diff === 'Medium') {
+    var x = randInt(1, 10);
+    var b = randInt(-8, 8);
+    var c = Math.abs(x + b);
+    // |x + b| = c → x + b = c → x = c - b (positive solution)
+    return { question: 'Solve: |x + ' + paren(b) + '| = ' + c + '. Give the larger solution.', answer: c - b };
+  } else {
+    var x = randInt(1, 12);
+    var a = randInt(2, 5);
+    var b = randInt(-10, 10);
+    var c = Math.abs(a * x + b);
+    // |ax + b| = c → ax + b = c → x = (c - b)/a  (larger solution)
+    var sol1 = (c - b) / a;
+    var sol2 = (-c - b) / a;
+    var ans = Math.max(sol1, sol2);
+    // Ensure clean answer
+    if (ans !== Math.round(ans)) {
+      x = randInt(1, 8);
+      a = 2;
+      b = randInt(-6, 6);
+      if (b % 2 !== 0) b++;
+      c = Math.abs(a * x + b);
+      sol1 = (c - b) / a;
+      sol2 = (-c - b) / a;
+      ans = Math.max(sol1, sol2);
+    }
+    return { question: 'Solve: |' + fmtTerm(a, 'x') + ' + ' + paren(b) + '| = ' + c + '. Give the larger solution.', answer: ans };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. LINEAR INEQUALITIES — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Word Problems (Linear Inequalities)
+SUB_GENERATORS['Linear Inequalities']['Word Problems'] = function(diff) {
+  if (diff === 'Easy') {
+    var pricePerItem = randInt(2, 5);
+    var budget = pricePerItem * randInt(3, 10);
+    var maxItems = budget / pricePerItem;
+    return { question: 'Each toy costs $' + pricePerItem + '. You have $' + budget + '. What is the maximum number of toys you can buy?', answer: maxItems };
+  } else if (diff === 'Medium') {
+    var base = randInt(10, 30);
+    var perUnit = randInt(2, 8);
+    var limit = randInt(50, 100);
+    // base + perUnit * x ≤ limit → x ≤ (limit - base)/perUnit
+    var x = Math.floor((limit - base) / perUnit);
+    return {
+      question: 'A phone plan costs $' + base + '/month plus $' + perUnit + '/GB of data. Your budget is $' + limit + '/month. What is the max whole GB you can use?',
+      answer: x
+    };
+  } else {
+    var fixed = randInt(50, 200);
+    var perItem = randInt(5, 20);
+    var sellPrice = perItem + randInt(5, 15);
+    // To profit: sellPrice * x > fixed + perItem * x → (sellPrice - perItem) * x > fixed → x > fixed/(sellPrice - perItem)
+    var margin = sellPrice - perItem;
+    // Ensure clean division
+    var remainder = fixed % margin;
+    if (remainder !== 0) fixed = fixed - remainder + margin;
+    var breakEven = fixed / margin;
+    return {
+      question: 'Making widgets costs $' + fixed + ' fixed + $' + perItem + ' each. You sell them for $' + sellPrice + ' each. How many must you sell to break even? (Minimum whole number)',
+      answer: breakEven + 1
+    };
+  }
+};
+
+// Absolute Value Inequalities
+SUB_GENERATORS['Linear Inequalities']['Absolute Value Inequalities'] = function(diff) {
+  if (diff === 'Easy') {
+    var c = randInt(2, 10);
+    return { question: 'Solve: |x| < ' + c + '. What is the upper bound of x?', answer: c };
+  } else if (diff === 'Medium') {
+    var b = randInt(-8, 8);
+    var c = randInt(2, 10);
+    // |x + b| ≤ c → -c ≤ x + b ≤ c → -c - b ≤ x ≤ c - b
+    return { question: 'Solve: |x + ' + paren(b) + '| ≤ ' + c + '. What is the upper bound of x?', answer: c - b };
+  } else {
+    var a = randInt(2, 5);
+    var b = randInt(-10, 10);
+    var c = randInt(5, 20);
+    // |ax + b| < c → -c < ax + b < c → (-c-b)/a < x < (c-b)/a
+    // Ensure clean answer: c - b must be divisible by a
+    while ((c - b) % a !== 0) c++;
+    return { question: 'Solve: |' + fmtTerm(a, 'x') + ' + ' + paren(b) + '| < ' + c + '. What is the upper bound of x?', answer: (c - b) / a };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. SYSTEMS OF EQUATIONS — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Number of Solutions (0, 1, or infinite — answer 0, 1, or -1 for infinite)
+SUB_GENERATORS['Systems of Equations']['Number of Solutions'] = function(diff) {
+  if (diff === 'Easy') {
+    // Always one solution (intersecting lines)
+    var m1 = randInt(1, 5);
+    var m2 = randInt(1, 5);
+    while (m2 === m1) m2 = randInt(1, 5);
+    var b1 = randInt(0, 5);
+    var b2 = randInt(0, 5);
+    return { question: 'How many solutions?  y = ' + fmtTerm(m1, 'x') + ' + ' + b1 + '  and  y = ' + fmtTerm(m2, 'x') + ' + ' + b2 + '  (Answer 0, 1, or -1 for infinite)', answer: 1 };
+  } else if (diff === 'Medium') {
+    var type = randInt(0, 2); // 0 = one, 1 = none, 2 = infinite
+    var m = randInt(1, 5);
+    var b1 = randInt(1, 10);
+    if (type === 0) {
+      var m2 = randInt(1, 5);
+      while (m2 === m) m2 = randInt(1, 5);
+      return { question: 'How many solutions?  y = ' + fmtTerm(m, 'x') + ' + ' + b1 + '  and  y = ' + fmtTerm(m2, 'x') + ' + ' + randInt(1, 10) + '  (Answer 0, 1, or -1 for infinite)', answer: 1 };
+    } else if (type === 1) {
+      var b2 = b1 + randInt(1, 5);
+      return { question: 'How many solutions?  y = ' + fmtTerm(m, 'x') + ' + ' + b1 + '  and  y = ' + fmtTerm(m, 'x') + ' + ' + b2 + '  (Answer 0, 1, or -1 for infinite)', answer: 0 };
+    } else {
+      return { question: 'How many solutions?  y = ' + fmtTerm(m, 'x') + ' + ' + b1 + '  and  2y = ' + fmtTerm(2 * m, 'x') + ' + ' + (2 * b1) + '  (Answer 0, 1, or -1 for infinite)', answer: -1 };
+    }
+  } else {
+    var type = randInt(0, 2);
+    var a1 = randInt(1, 4), b1v = randNonZero(4), c1 = randInt(-10, 10);
+    if (type === 0) {
+      var a2 = randNonZero(4), b2v = randNonZero(4);
+      while (a1 * b2v === a2 * b1v) { a2 = randNonZero(4); b2v = randNonZero(4); }
+      var c2 = randInt(-10, 10);
+      return { question: 'How many solutions?  ' + fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1v, 'y') + ' = ' + c1 + '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2v, 'y') + ' = ' + c2 + '  (Answer 0, 1, or -1 for infinite)', answer: 1 };
+    } else if (type === 1) {
+      var k = randInt(2, 3);
+      var c2 = c1 * k + randNonZero(5);
+      return { question: 'How many solutions?  ' + fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1v, 'y') + ' = ' + c1 + '  and  ' + fmtTerm(a1 * k, 'x') + ' + ' + fmtTerm(b1v * k, 'y') + ' = ' + c2 + '  (Answer 0, 1, or -1 for infinite)', answer: 0 };
+    } else {
+      var k = randInt(2, 3);
+      return { question: 'How many solutions?  ' + fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1v, 'y') + ' = ' + c1 + '  and  ' + fmtTerm(a1 * k, 'x') + ' + ' + fmtTerm(b1v * k, 'y') + ' = ' + (c1 * k) + '  (Answer 0, 1, or -1 for infinite)', answer: -1 };
+    }
+  }
+};
+
+// Find Both Variables — asks for x + y
+SUB_GENERATORS['Systems of Equations']['Find Both Variables'] = function(diff) {
+  if (diff === 'Easy') {
+    var x = randInt(1, 8);
+    var y = randInt(1, 8);
+    return {
+      question: 'x + y = ' + (x + y) + '  and  x − y = ' + (x - y) + '. What is x + 2y?',
+      answer: x + 2 * y
+    };
+  } else if (diff === 'Medium') {
+    var x = randInt(-5, 5);
+    var y = randInt(-5, 5);
+    var a1 = randInt(1, 3), b1 = randNonZero(3);
+    var c1 = a1 * x + b1 * y;
+    var a2 = randNonZero(3), b2 = randInt(1, 3);
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1, 'y') + ' = ' + c1 + '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2, 'y') + ' = ' + c2 + '. What is x · y (x times y)?',
+      answer: x * y
+    };
+  } else {
+    var x = randInt(-6, 6);
+    var y = randInt(-6, 6);
+    var a1 = randNonZero(4), b1 = randNonZero(4);
+    var c1 = a1 * x + b1 * y;
+    var a2 = randNonZero(4), b2 = randNonZero(4);
+    while (a1 * b2 === a2 * b1) { a2 = randNonZero(4); b2 = randNonZero(4); }
+    var c2 = a2 * x + b2 * y;
+    return {
+      question: fmtTerm(a1, 'x') + ' + ' + fmtTerm(b1, 'y') + ' = ' + c1 + '  and  ' + fmtTerm(a2, 'x') + ' + ' + fmtTerm(b2, 'y') + ' = ' + c2 + '. What is x² + y²?',
+      answer: x * x + y * y
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. FUNCTIONS & GRAPHING — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Rate of Change
+SUB_GENERATORS['Functions & Graphing']['Rate of Change'] = function(diff) {
+  if (diff === 'Easy') {
+    var rate = randInt(2, 8);
+    var x1 = randInt(0, 3), x2 = x1 + randInt(1, 4);
+    var b = randInt(0, 10);
+    var y1 = rate * x1 + b, y2 = rate * x2 + b;
+    return { question: 'A plant was ' + y1 + ' cm at week ' + x1 + ' and ' + y2 + ' cm at week ' + x2 + '. What is the rate of change (cm/week)?', answer: rate };
+  } else if (diff === 'Medium') {
+    var rate = randNonZero(6);
+    var x1 = randInt(1, 5), x2 = x1 + randInt(2, 5);
+    var b = randInt(-10, 20);
+    var y1 = rate * x1 + b, y2 = rate * x2 + b;
+    return { question: 'Temperature was ' + y1 + '°F at hour ' + x1 + ' and ' + y2 + '°F at hour ' + x2 + '. What is the rate of change (°F/hour)?', answer: rate };
+  } else {
+    var rate = randNonZero(8);
+    var x1 = randInt(-3, 3), x2 = x1 + randInt(1, 4);
+    var b = randInt(-20, 20);
+    var y1 = rate * x1 + b, y2 = rate * x2 + b;
+    return { question: 'f(' + x1 + ') = ' + y1 + ' and f(' + x2 + ') = ' + y2 + '. What is the average rate of change?', answer: rate };
+  }
+};
+
+// Function Composition: f(g(x))
+SUB_GENERATORS['Functions & Graphing']['Function Composition'] = function(diff) {
+  if (diff === 'Easy') {
+    var a = randInt(1, 3), b = randInt(1, 5);
+    var c = randInt(1, 3), d = randInt(1, 5);
+    var xVal = randInt(1, 4);
+    var gx = c * xVal + d;
+    var fgx = a * gx + b;
+    return { question: 'f(x) = ' + fmtTerm(a, 'x') + ' + ' + b + '  and  g(x) = ' + fmtTerm(c, 'x') + ' + ' + d + '. Find f(g(' + xVal + ')).', answer: fgx };
+  } else if (diff === 'Medium') {
+    var a = randNonZero(4), b = randInt(-5, 5);
+    var c = randNonZero(3), d = randInt(-5, 5);
+    var xVal = randInt(-3, 3);
+    var gx = c * xVal + d;
+    var fgx = a * gx + b;
+    return { question: 'f(x) = ' + fmtTerm(a, 'x') + ' + ' + paren(b) + '  and  g(x) = ' + fmtTerm(c, 'x') + ' + ' + paren(d) + '. Find f(g(' + xVal + ')).', answer: fgx };
+  } else {
+    var a = randInt(1, 3), b = randInt(-5, 5);
+    var c = randNonZero(3), d = randInt(-5, 5);
+    var xVal = randInt(-3, 3);
+    var gx = c * xVal + d;
+    var fgx = a * gx * gx + b;
+    return { question: 'f(x) = ' + fmtTerm(a, 'x²') + ' + ' + paren(b) + '  and  g(x) = ' + fmtTerm(c, 'x') + ' + ' + paren(d) + '. Find f(g(' + xVal + ')).', answer: fgx };
+  }
+};
+
+// Linear vs Nonlinear — given table or equation, is it linear? (1 = yes, 0 = no)
+SUB_GENERATORS['Functions & Graphing']['Linear vs Nonlinear'] = function(diff) {
+  if (diff === 'Easy') {
+    var isLinear = randInt(0, 1);
+    if (isLinear) {
+      var m = randInt(1, 5), b = randInt(0, 5);
+      return { question: 'Is y = ' + fmtTerm(m, 'x') + ' + ' + b + ' a linear function? (1 = yes, 0 = no)', answer: 1 };
+    } else {
+      var a = randInt(1, 3), b = randInt(0, 5);
+      return { question: 'Is y = ' + fmtTerm(a, 'x²') + ' + ' + b + ' a linear function? (1 = yes, 0 = no)', answer: 0 };
+    }
+  } else if (diff === 'Medium') {
+    var isLinear = randInt(0, 1);
+    if (isLinear) {
+      var m = randNonZero(5), b = randInt(-5, 5);
+      var vals = [];
+      for (var i = 0; i < 4; i++) vals.push(m * i + b);
+      return { question: 'x: 0, 1, 2, 3  →  y: ' + vals.join(', ') + '. Is this linear? (1 = yes, 0 = no)', answer: 1 };
+    } else {
+      var a = randInt(1, 3);
+      var vals = [];
+      for (var i = 0; i < 4; i++) vals.push(a * i * i);
+      return { question: 'x: 0, 1, 2, 3  →  y: ' + vals.join(', ') + '. Is this linear? (1 = yes, 0 = no)', answer: 0 };
+    }
+  } else {
+    var isLinear = randInt(0, 1);
+    if (isLinear) {
+      var a = randNonZero(4), b = randNonZero(3), c = randInt(-5, 5);
+      return { question: 'Is ' + fmtTerm(a, 'x') + ' + ' + fmtTerm(b, 'y') + ' = ' + c + ' a linear equation? (1 = yes, 0 = no)', answer: 1 };
+    } else {
+      var choices = [
+        { eq: 'xy = ' + randInt(2, 20), ans: 0 },
+        { eq: 'y = ' + randInt(2, 4) + '^x', ans: 0 },
+        { eq: 'y = √x + ' + randInt(1, 5), ans: 0 }
+      ];
+      var pick = choices[randInt(0, choices.length - 1)];
+      return { question: 'Is ' + pick.eq + ' a linear equation? (1 = yes, 0 = no)', answer: pick.ans };
+    }
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. SEQUENCES — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Find Common Difference
+SUB_GENERATORS['Arithmetic & Geometric Sequences']['Find Common Difference'] = function(diff) {
+  if (diff === 'Easy') {
+    var a1 = randInt(1, 10);
+    var d = randInt(1, 8);
+    return { question: 'Arithmetic sequence: ' + a1 + ', ' + (a1 + d) + ', ' + (a1 + 2 * d) + ', ' + (a1 + 3 * d) + ', ... What is the common difference?', answer: d };
+  } else if (diff === 'Medium') {
+    var a1 = randInt(-10, 10);
+    var d = randNonZero(6);
+    return { question: 'Arithmetic sequence: ' + a1 + ', ' + (a1 + d) + ', ' + (a1 + 2 * d) + ', ... What is the common difference?', answer: d };
+  } else {
+    var a1 = randInt(-15, 15);
+    var d = randNonZero(8);
+    var n = randInt(6, 12);
+    var an = a1 + (n - 1) * d;
+    return { question: 'An arithmetic sequence has a₁ = ' + a1 + ' and a' + n + ' = ' + an + '. What is the common difference?', answer: d };
+  }
+};
+
+// Find Common Ratio
+SUB_GENERATORS['Arithmetic & Geometric Sequences']['Find Common Ratio'] = function(diff) {
+  if (diff === 'Easy') {
+    var a1 = randInt(1, 5);
+    var r = randInt(2, 4);
+    return { question: 'Geometric sequence: ' + a1 + ', ' + (a1 * r) + ', ' + (a1 * r * r) + ', ... What is the common ratio?', answer: r };
+  } else if (diff === 'Medium') {
+    var a1 = randInt(1, 4);
+    var r = randNonZero(3);
+    while (r === 1 || r === -1) r = randNonZero(3);
+    return { question: 'Geometric sequence: ' + a1 + ', ' + (a1 * r) + ', ' + (a1 * r * r) + ', ' + (a1 * r * r * r) + ', ... What is the common ratio?', answer: r };
+  } else {
+    var a1 = randInt(1, 3);
+    var r = randInt(2, 5);
+    var n = randInt(3, 5);
+    var an = a1 * Math.pow(r, n - 1);
+    return { question: 'A geometric sequence has a₁ = ' + a1 + ' and a' + n + ' = ' + an + '. What is the common ratio?', answer: r };
+  }
+};
+
+// Missing Terms
+SUB_GENERATORS['Arithmetic & Geometric Sequences']['Missing Terms'] = function(diff) {
+  if (diff === 'Easy') {
+    var a1 = randInt(1, 10);
+    var d = randInt(1, 5);
+    // ___, a2, a3 → find a1
+    return { question: 'Arithmetic sequence: ___, ' + (a1 + d) + ', ' + (a1 + 2 * d) + ', ' + (a1 + 3 * d) + '. What is the missing first term?', answer: a1 };
+  } else if (diff === 'Medium') {
+    var a1 = randInt(1, 5);
+    var r = randInt(2, 3);
+    // a1, ___, a3 → find a2
+    var a2 = a1 * r;
+    return { question: 'Geometric sequence: ' + a1 + ', ___, ' + (a1 * r * r) + ', ' + (a1 * r * r * r) + '. What is the missing second term?', answer: a2 };
+  } else {
+    var a1 = randInt(-8, 8);
+    var d = randNonZero(5);
+    // a1, a2, ___, a4, a5 → find a3
+    var a3 = a1 + 2 * d;
+    return {
+      question: 'Arithmetic sequence: ' + a1 + ', ' + (a1 + d) + ', ___, ' + (a1 + 3 * d) + ', ' + (a1 + 4 * d) + '. What is the missing term?',
+      answer: a3
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. EXPONENTS & RADICALS — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Negative Exponents
+SUB_GENERATORS['Exponents & Radicals']['Negative Exponents'] = function(diff) {
+  if (diff === 'Easy') {
+    // a^(-1) = 1/a → express as fraction: answer = a (we ask "what is the denominator")
+    var a = randInt(2, 10);
+    return { question: a + '^(−1) = 1/?. What goes in place of the question mark?', answer: a };
+  } else if (diff === 'Medium') {
+    // a^(-2) = 1/a² → answer is a²
+    var a = randInt(2, 5);
+    return { question: a + '^(−2) = 1/?. What goes in place of the question mark?', answer: a * a };
+  } else {
+    // (a/b)^(-1) = b/a → answer is b when asked "what is the numerator?"
+    var a = randInt(2, 6);
+    var b = randInt(2, 6);
+    while (b === a) b = randInt(2, 6);
+    return { question: '(' + a + '/' + b + ')^(−1) = ?/' + a + '. What is the numerator?', answer: b };
+  }
+};
+
+// Scientific Notation
+SUB_GENERATORS['Exponents & Radicals']['Scientific Notation'] = function(diff) {
+  if (diff === 'Easy') {
+    // What power of 10? e.g., 3000 = 3 × 10^?
+    var coeff = randInt(1, 9);
+    var exp = randInt(1, 4);
+    var num = coeff * Math.pow(10, exp);
+    return { question: num + ' = ' + coeff + ' × 10^?. What is the exponent?', answer: exp };
+  } else if (diff === 'Medium') {
+    var coeff = randInt(1, 9);
+    var exp1 = randInt(2, 5);
+    var exp2 = randInt(2, 5);
+    // (coeff × 10^exp1) × 10^exp2 = coeff × 10^(exp1+exp2)
+    return { question: '(' + coeff + ' × 10^' + exp1 + ') × 10^' + exp2 + ' = ' + coeff + ' × 10^?. What is the exponent?', answer: exp1 + exp2 };
+  } else {
+    // Multiply two sci-notation numbers, find exponent
+    var c1 = randInt(1, 9), e1 = randInt(2, 5);
+    var c2 = randInt(1, 9), e2 = randInt(2, 5);
+    var product = c1 * c2;
+    var expSum = e1 + e2;
+    // Adjust if product ≥ 10
+    if (product >= 10) expSum++;
+    return {
+      question: '(' + c1 + ' × 10^' + e1 + ') × (' + c2 + ' × 10^' + e2 + '). What is the exponent in scientific notation? (Product coefficient adjusted to be 1-9)',
+      answer: expSum
+    };
+  }
+};
+
+// Cube Roots
+SUB_GENERATORS['Exponents & Radicals']['Cube Roots'] = function(diff) {
+  if (diff === 'Easy') {
+    var n = randInt(1, 5);
+    return { question: 'Evaluate: ∛' + (n * n * n), answer: n };
+  } else if (diff === 'Medium') {
+    var n = randInt(2, 8);
+    return { question: 'Evaluate: ∛' + (n * n * n), answer: n };
+  } else {
+    var n = randInt(2, 10);
+    return { question: 'Evaluate: ∛' + (n * n * n), answer: n };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. POLYNOMIALS & FACTORING — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Add & Subtract Polynomials
+SUB_GENERATORS['Polynomials & Factoring']['Add & Subtract Polynomials'] = function(diff) {
+  if (diff === 'Easy') {
+    // (ax + b) + (cx + d) → coefficient of x
+    var a = randInt(1, 5), b = randInt(1, 5);
+    var c = randInt(1, 5), d = randInt(1, 5);
+    return { question: '(' + fmtTerm(a, 'x') + ' + ' + b + ') + (' + fmtTerm(c, 'x') + ' + ' + d + '). What is the coefficient of x?', answer: a + c };
+  } else if (diff === 'Medium') {
+    // (ax² + bx + c) + (dx² + ex + f) → coefficient of x²
+    var a = randNonZero(4), b = randInt(-5, 5), c = randInt(-5, 5);
+    var d = randNonZero(4), e = randInt(-5, 5), f = randInt(-5, 5);
+    return {
+      question: '(' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + ') + (' + fmtTerm(d, 'x²') + ' + ' + fmtTerm(e, 'x') + ' + ' + paren(f) + '). What is the coefficient of x²?',
+      answer: a + d
+    };
+  } else {
+    // Subtraction: (ax² + bx + c) − (dx² + ex + f) → coefficient of x
+    var a = randNonZero(5), b = randNonZero(6), c = randInt(-8, 8);
+    var d = randNonZero(5), e = randNonZero(6), f = randInt(-8, 8);
+    return {
+      question: '(' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + ') − (' + fmtTerm(d, 'x²') + ' + ' + fmtTerm(e, 'x') + ' + ' + paren(f) + '). What is the coefficient of x?',
+      answer: b - e
+    };
+  }
+};
+
+// GCF Factoring
+SUB_GENERATORS['Polynomials & Factoring']['GCF Factoring'] = function(diff) {
+  if (diff === 'Easy') {
+    // ax + ab = a(x + b), what is the GCF?
+    var a = randInt(2, 6);
+    var b = randInt(1, 8);
+    return { question: 'Factor out the GCF from ' + (a) + 'x + ' + (a * b) + '. What is the GCF?', answer: a };
+  } else if (diff === 'Medium') {
+    var gcf = randInt(2, 5);
+    var a = randInt(1, 4);
+    var b = randInt(1, 6);
+    return { question: 'Factor out the GCF from ' + (gcf * a) + 'x² + ' + (gcf * b) + 'x. What is the GCF?', answer: gcf };
+  } else {
+    var gcf = randInt(2, 6);
+    var a = randInt(1, 5);
+    var b = randInt(1, 5);
+    var c = randInt(1, 5);
+    return {
+      question: 'Factor out the GCF from ' + (gcf * a) + 'x³ + ' + (gcf * b) + 'x² + ' + (gcf * c) + 'x. What is the GCF?',
+      answer: gcf
+    };
+  }
+};
+
+// Degree & Leading Coefficient
+SUB_GENERATORS['Polynomials & Factoring']['Degree & Leading Coefficient'] = function(diff) {
+  if (diff === 'Easy') {
+    var a = randInt(1, 5), b = randInt(-5, 5);
+    var deg = 1;
+    return { question: 'What is the degree of ' + fmtTerm(a, 'x') + ' + ' + paren(b) + '?', answer: deg };
+  } else if (diff === 'Medium') {
+    var a = randNonZero(4), b = randInt(-8, 8), c = randInt(-8, 8);
+    return { question: 'What is the leading coefficient of ' + fmtTerm(a, 'x²') + ' + ' + fmtTerm(b, 'x') + ' + ' + paren(c) + '?', answer: a };
+  } else {
+    var a = randNonZero(3), b = randNonZero(4), c = randInt(-8, 8), d = randInt(-5, 5);
+    var deg = 3;
+    var askDeg = randInt(0, 1);
+    if (askDeg) {
+      return { question: 'What is the degree of ' + fmtTerm(a, 'x³') + ' + ' + fmtTerm(b, 'x²') + ' + ' + fmtTerm(c, 'x') + ' + ' + paren(d) + '?', answer: deg };
+    } else {
+      return { question: 'What is the leading coefficient of ' + fmtTerm(a, 'x³') + ' + ' + fmtTerm(b, 'x²') + ' + ' + fmtTerm(c, 'x') + ' + ' + paren(d) + '?', answer: a };
+    }
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. QUADRATIC EQUATIONS — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Vertex Form: y = a(x-h)² + k
+SUB_GENERATORS['Quadratic Equations']['Vertex Form'] = function(diff) {
+  if (diff === 'Easy') {
+    var h = randInt(0, 5);
+    var k = randInt(0, 10);
+    return { question: 'In y = (x − ' + h + ')² + ' + k + ', what is the y-coordinate of the vertex?', answer: k };
+  } else if (diff === 'Medium') {
+    var a = randNonZero(3);
+    var h = randInt(-5, 5);
+    var k = randInt(-10, 10);
+    return { question: 'In y = ' + fmtTerm(a, '(x − ' + paren(h) + ')²') + ' + ' + paren(k) + ', what is the x-coordinate of the vertex?', answer: h };
+  } else {
+    // Convert vertex form to standard, find constant
+    var a = randInt(1, 3);
+    var h = randInt(-4, 4);
+    var k = randInt(-10, 10);
+    // y = a(x-h)² + k = ax² - 2ahx + ah² + k
+    var c = a * h * h + k;
+    return { question: 'Expand y = ' + a + '(x − ' + paren(h) + ')² + ' + paren(k) + ' to standard form ax² + bx + c. What is c?', answer: c };
+  }
+};
+
+// Complete the Square
+SUB_GENERATORS['Quadratic Equations']['Complete the Square'] = function(diff) {
+  if (diff === 'Easy') {
+    // x² + bx + ? is a perfect square when ? = (b/2)²
+    var half = randInt(1, 6);
+    var b = 2 * half;
+    return { question: 'x² + ' + b + 'x + ? is a perfect square trinomial. What is ??', answer: half * half };
+  } else if (diff === 'Medium') {
+    var half = randInt(-6, 6);
+    while (half === 0) half = randInt(-6, 6);
+    var b = 2 * half;
+    return { question: 'x² + ' + paren(b) + 'x + ? is a perfect square trinomial. What is ??', answer: half * half };
+  } else {
+    // Solve by completing the square: x² + bx + c = 0 → give larger root
+    var r = randInt(-8, 8);
+    var s = randInt(-8, 8);
+    while (s === r) s = randInt(-8, 8);
+    // Make sure (r+s) is even for clean half
+    if ((r + s) % 2 !== 0) s++;
+    while (s === r) s++;
+    var bCoeff = -(r + s);
+    var c = r * s;
+    return {
+      question: 'Complete the square to solve: x² + ' + paren(bCoeff) + 'x + ' + paren(c) + ' = 0. Give the larger root.',
+      answer: Math.max(r, s)
+    };
+  }
+};
+
+// Quadratic Word Problems
+SUB_GENERATORS['Quadratic Equations']['Quadratic Word Problems'] = function(diff) {
+  if (diff === 'Easy') {
+    var side = randInt(2, 10);
+    return { question: 'A square has area ' + (side * side) + '. What is the side length?', answer: side };
+  } else if (diff === 'Medium') {
+    // Rectangle: length = width + k, area = A
+    var w = randInt(3, 10);
+    var k = randInt(1, 5);
+    var l = w + k;
+    var area = w * l;
+    return { question: 'A rectangle\'s length is ' + k + ' more than its width. Its area is ' + area + '. What is the width?', answer: w };
+  } else {
+    // Projectile: h = -16t² + vt + h0 → when h = 0 (positive time)
+    var t = randInt(1, 5);
+    // h = -16t² + v*t → at t, h = 0 → v = 16t
+    var v = 16 * t;
+    return {
+      question: 'A ball is thrown upward with h(t) = −16t² + ' + v + 't. At what positive time t does it hit the ground (h = 0)?',
+      answer: t
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. STATISTICS & DATA ANALYSIS — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Mode
+SUB_GENERATORS['Statistics & Data Analysis']['Mode'] = function(diff) {
+  if (diff === 'Easy') {
+    var mode = randInt(1, 10);
+    var nums = [mode, mode];
+    for (var i = 0; i < 3; i++) {
+      var v = randInt(1, 15);
+      while (v === mode) v = randInt(1, 15);
+      nums.push(v);
+    }
+    return { question: 'Find the mode of: ' + shuffleArray(nums).join(', '), answer: mode };
+  } else if (diff === 'Medium') {
+    var mode = randInt(1, 20);
+    var nums = [mode, mode, mode];
+    for (var i = 0; i < 4; i++) {
+      var v = randInt(1, 25);
+      while (v === mode) v = randInt(1, 25);
+      nums.push(v);
+    }
+    return { question: 'Find the mode of: ' + shuffleArray(nums).join(', '), answer: mode };
+  } else {
+    var mode = randInt(-10, 20);
+    var nums = [mode, mode, mode];
+    for (var i = 0; i < 5; i++) {
+      var v = randInt(-10, 30);
+      while (v === mode) v = randInt(-10, 30);
+      nums.push(v);
+    }
+    return { question: 'Find the mode of: ' + shuffleArray(nums).join(', '), answer: mode };
+  }
+};
+
+// Weighted Average
+SUB_GENERATORS['Statistics & Data Analysis']['Weighted Average'] = function(diff) {
+  if (diff === 'Easy') {
+    // Two tests with equal weight
+    var s1 = randInt(60, 100);
+    var s2 = randInt(60, 100);
+    if ((s1 + s2) % 2 !== 0) s2++;
+    return { question: 'You scored ' + s1 + ' and ' + s2 + ' on two equally weighted tests. What is your average?', answer: (s1 + s2) / 2 };
+  } else if (diff === 'Medium') {
+    // Weighted: test 60%, quiz 40%
+    var test = randInt(5, 10) * 10;
+    var quiz = randInt(5, 10) * 10;
+    var avg = test * 0.6 + quiz * 0.4;
+    return { question: 'Test score: ' + test + ' (weight 60%). Quiz score: ' + quiz + ' (weight 40%). What is the weighted average?', answer: avg };
+  } else {
+    // Three categories
+    var hw = randInt(7, 10) * 10;    // 20%
+    var quiz = randInt(6, 10) * 10;  // 30%
+    var exam = randInt(5, 10) * 10;  // 50%
+    var avg = hw * 0.2 + quiz * 0.3 + exam * 0.5;
+    return {
+      question: 'Homework: ' + hw + ' (20%), Quizzes: ' + quiz + ' (30%), Exam: ' + exam + ' (50%). What is the weighted average?',
+      answer: avg
+    };
+  }
+};
+
+// Five-Number Summary — find Q1, Q3, or IQR
+SUB_GENERATORS['Statistics & Data Analysis']['Five-Number Summary'] = function(diff) {
+  if (diff === 'Easy') {
+    // Give sorted data, ask for min
+    var nums = [];
+    for (var i = 0; i < 5; i++) nums.push(randInt(1, 20));
+    nums.sort(function(a, b) { return a - b; });
+    return { question: 'Data: ' + nums.join(', ') + '. What is the minimum value?', answer: nums[0] };
+  } else if (diff === 'Medium') {
+    // 7 values → Q1 is median of lower half
+    var nums = [];
+    for (var i = 0; i < 7; i++) nums.push(randInt(1, 30));
+    nums.sort(function(a, b) { return a - b; });
+    // Lower half: [0,1,2], Q1 = nums[1]; Upper half: [4,5,6], Q3 = nums[5]
+    var askQ1 = randInt(0, 1);
+    if (askQ1) {
+      return { question: 'Data: ' + shuffleArray(nums).join(', ') + '. What is Q1 (first quartile)?', answer: nums[1] };
+    } else {
+      return { question: 'Data: ' + shuffleArray(nums).join(', ') + '. What is Q3 (third quartile)?', answer: nums[5] };
+    }
+  } else {
+    // IQR = Q3 - Q1
+    var nums = [];
+    for (var i = 0; i < 7; i++) nums.push(randInt(1, 40));
+    nums.sort(function(a, b) { return a - b; });
+    var q1 = nums[1], q3 = nums[5];
+    return { question: 'Data: ' + shuffleArray(nums).join(', ') + '. What is the IQR (interquartile range)?', answer: q3 - q1 };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. GEOMETRY — new sub-topics
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Perimeter
+SUB_GENERATORS['Geometry']['Perimeter'] = function(diff) {
+  if (diff === 'Easy') {
+    var l = randInt(2, 12);
+    var w = randInt(2, 12);
+    return { question: 'Find the perimeter of a rectangle with length ' + l + ' and width ' + w + '.', answer: 2 * (l + w) };
+  } else if (diff === 'Medium') {
+    var shapes = ['triangle', 'square'];
+    var pick = shapes[randInt(0, shapes.length - 1)];
+    if (pick === 'triangle') {
+      var a = randInt(3, 12), b = randInt(3, 12), c = randInt(3, 12);
+      // ensure valid triangle
+      while (a + b <= c || a + c <= b || b + c <= a) c = randInt(3, 12);
+      return { question: 'Find the perimeter of a triangle with sides ' + a + ', ' + b + ', and ' + c + '.', answer: a + b + c };
+    } else {
+      var s = randInt(2, 15);
+      return { question: 'Find the perimeter of a square with side length ' + s + '.', answer: 4 * s };
+    }
+  } else {
+    // Composite shape: rectangle with a triangle on top
+    var l = randInt(4, 10);
+    var w = randInt(3, 8);
+    var triSide = randInt(3, 8);
+    // Perimeter = 2w + l + 2*triSide (rectangle base is covered by triangle base)
+    // Actually let's keep it simpler: regular polygon
+    var sides = [5, 6, 8][randInt(0, 2)];
+    var sideLen = randInt(3, 10);
+    return { question: 'Find the perimeter of a regular ' + sides + '-sided polygon with side length ' + sideLen + '.', answer: sides * sideLen };
+  }
+};
+
+// Surface Area
+SUB_GENERATORS['Geometry']['Surface Area'] = function(diff) {
+  if (diff === 'Easy') {
+    var s = randInt(2, 8);
+    return { question: 'Find the surface area of a cube with side length ' + s + '.', answer: 6 * s * s };
+  } else if (diff === 'Medium') {
+    var l = randInt(2, 8);
+    var w = randInt(2, 8);
+    var h = randInt(2, 8);
+    var sa = 2 * (l * w + l * h + w * h);
+    return { question: 'Find the surface area of a rectangular prism with length ' + l + ', width ' + w + ', and height ' + h + '.', answer: sa };
+  } else {
+    // Sphere: SA = 4πr²
+    var r = randInt(1, 8);
+    var sa = Math.round(4 * 3.14 * r * r * 100) / 100;
+    return { question: 'Find the surface area of a sphere with radius ' + r + '. (Use π ≈ 3.14, round to nearest hundredth.)', answer: sa };
+  }
+};
+
+// Circumference & Circles
+SUB_GENERATORS['Geometry']['Circumference & Circles'] = function(diff) {
+  if (diff === 'Easy') {
+    // C = 2πr
+    var r = randInt(1, 10);
+    var c = Math.round(2 * 3.14 * r * 100) / 100;
+    return { question: 'Find the circumference of a circle with radius ' + r + '. (Use π ≈ 3.14)', answer: c };
+  } else if (diff === 'Medium') {
+    // C = πd
+    var d = randInt(2, 20);
+    var c = Math.round(3.14 * d * 100) / 100;
+    return { question: 'Find the circumference of a circle with diameter ' + d + '. (Use π ≈ 3.14)', answer: c };
+  } else {
+    // Given circumference, find radius: r = C / (2π)
+    var r = randInt(2, 12);
+    var circ = Math.round(2 * 3.14 * r * 100) / 100;
+    return { question: 'A circle has circumference ' + circ + '. What is its radius? (Use π ≈ 3.14)', answer: r };
+  }
+};
